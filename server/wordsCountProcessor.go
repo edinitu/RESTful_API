@@ -5,19 +5,34 @@ import (
 	"log"
 	"net/http"
 	"net/rpc"
+	"strconv"
+	"strings"
 	"sync"
 )
+
+type Healthy struct{}
+
+func (h *Healthy) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
+	rw.WriteHeader(http.StatusOK)
+}
 
 type WordsCount struct {
 	lock            sync.Mutex
 	wordFrequencies map[string]int
-
-	fileMgr FileMgr
+	otherAddresses  []string
+	fileMgr         FileMgr
 }
 
 func (wco *WordsCount) Init() {
 	wco.wordFrequencies = make(map[string]int)
 	wco.fileMgr = new(FileMgrImpl)
+
+	for i := 0; i < numberOfInstances; i++ {
+		if i+1 == port%10 {
+			continue
+		}
+		wco.otherAddresses = append(wco.otherAddresses, ip+":"+strconv.Itoa(balancerPort+i+1))
+	}
 }
 
 func (wco *WordsCount) UpdateCacheForWords(update Update, reply *int) error {
@@ -33,23 +48,29 @@ func (wco *WordsCount) UpdateCacheForWords(update Update, reply *int) error {
 func (wco *WordsCount) UpdateCacheAndPersist(words []string, reply *int) error {
 	update := make(map[string]int)
 	for _, word := range words {
-		wco.wordFrequencies[word]++
-		update[word] = wco.wordFrequencies[word]
+		normalizedWord := toLowerAndStripSpecialChars(word)
+		wco.wordFrequencies[normalizedWord]++
+		update[normalizedWord] = wco.wordFrequencies[normalizedWord]
 	}
 	err := wco.fileMgr.AppendDataToFile(wco, words)
 	if err != nil {
 		return err
 	}
 
-	client, err := rpc.DialHTTP("tcp", "127.0.0.1:7002")
-	if err != nil {
-		log.Fatal("dialing:", err)
+	for _, address := range wco.otherAddresses {
+		client, err := rpc.DialHTTP("tcp", address)
+		if err != nil {
+			log.Println("Error dialing: ", err)
+		}
+
+		err = client.Call(
+			"WordsCount.UpdateCacheForWords",
+			&Update{update}, reply)
+		if err != nil {
+			log.Println("Error while synchronizing other instances, ", err.Error())
+		}
 	}
-
-	return client.Call(
-		"WordsCount.UpdateCacheForWords",
-		&Update{update}, reply)
-
+	return nil
 }
 
 func (wco *WordsCount) GetResponseFromCache(words WordsGetBody) map[string]int {
@@ -118,5 +139,18 @@ func (wco *WordsCount) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 			log.Printf("ERROR: %s\n", err.Error())
 		}
 		log.Printf("\nGET:\n words %v.\n Response:\n %v", words.Words, response)
+		return
 	}
+
+	rw.WriteHeader(http.StatusBadRequest)
+	_, err := rw.Write([]byte("Method not supported yet"))
+	if err != nil {
+		panic(err)
+	}
+}
+
+func toLowerAndStripSpecialChars(s string) string {
+	// consider just the string with no special character or digits before or after it
+	s = strings.Trim(s, "!@#$%^&*()_{}:<>?=[];',.//|\\0123456789-\n ")
+	return strings.ToLower(s)
 }

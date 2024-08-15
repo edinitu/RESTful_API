@@ -36,9 +36,12 @@ func (fmi *FileMgrImpl) LoadDataFromFile(AllData *WordsCount, instanceId int) er
 	}
 
 	log.Println("Reload cache with file data")
-	strData := strings.TrimRight(string(data), "\n")
+	strData := strings.Trim(string(data), "\n ")
 	rows := strings.Split(strData, "\n")
 	for _, row := range rows {
+		if row == "" {
+			continue
+		}
 		pair := strings.Split(row, ":")
 		if len(pair) != 2 {
 			log.Printf("Warning, row should have precisely 2 elements: %v, skipping", row)
@@ -59,7 +62,8 @@ func (fmi *FileMgrImpl) AppendDataToFile(AllData *WordsCount, words []string) er
 	var textToWrite string
 
 	for _, word := range words {
-		textToWrite += word + ":" + strconv.Itoa(AllData.wordFrequencies[word])
+		normalizedWord := toLowerAndStripSpecialChars(word)
+		textToWrite += normalizedWord + ":" + strconv.Itoa(AllData.wordFrequencies[normalizedWord])
 		textToWrite += "\n"
 	}
 	f, err := os.OpenFile(FILE_PATH, os.O_WRONLY|os.O_APPEND, 0660)

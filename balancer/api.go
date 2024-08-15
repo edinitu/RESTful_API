@@ -1,42 +1,57 @@
 package main
 
-//
-//type Backend interface {
-//	IsAlive() bool
-//	GetURL() *url.URL
-//	ServeHTTP(http.ResponseWriter, *http.Request)
-//}
-//
-//type API struct {
-//	url          *url.URL
-//	alive        bool
-//	lock         sync.RWMutex
-//	reverseProxy *httputil.ReverseProxy
-//}
-//
-//func (api *API) GetURL() *url.URL {
-//	return api.url
-//}
-//
-//type roundRobin struct {
-//	apis    []API
-//	lock    sync.RWMutex
-//	current int
-//}
-//
-//func (s *roundRobin) Rotate() API {
-//	s.lock.Lock()
-//	s.current = (s.current + 1) % s.GetServerPoolSize()
-//	s.lock.Unlock()
-//	return s.apis[s.current]
-//}
-//
-//func (s *roundRobin) GetNextValidPeer() API {
-//	for i := 0; i < s.GetServerPoolSize(); i++ {
-//		nextPeer := s.Rotate()
-//		if nextPeer.IsAlive() {
-//			return nextPeer
-//		}
-//	}
-//	return nil
-//}
+import (
+	"log"
+	"net/http"
+	"net/url"
+	"sync"
+)
+
+type API interface {
+	IsAlive() bool
+	SetUrl(socket string) error
+	SetHealthUrl(socket string) error
+	GetUrl() *url.URL
+}
+
+type APIImpl struct {
+	URL       *url.URL
+	healthURL *url.URL
+	lock      sync.Mutex
+}
+
+func (api *APIImpl) IsAlive() bool {
+	api.lock.Lock()
+	defer api.lock.Unlock()
+	resp, err := http.Get(api.healthURL.String())
+	if err != nil {
+		log.Println("ERROR: Could not check alive status of api instance")
+		return false
+	}
+	if resp.Status == "200 OK" {
+		return true
+	}
+	return false
+}
+
+func (api *APIImpl) SetUrl(socket string) error {
+	apiUrl, err := url.Parse("http://" + socket)
+	if err != nil {
+		return err
+	}
+	api.URL = apiUrl
+	return nil
+}
+
+func (api *APIImpl) SetHealthUrl(socket string) error {
+	apiUrl, err := url.Parse("http://" + socket + "/healthy")
+	if err != nil {
+		return err
+	}
+	api.healthURL = apiUrl
+	return nil
+}
+
+func (api *APIImpl) GetUrl() *url.URL {
+	return api.URL
+}
