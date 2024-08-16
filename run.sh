@@ -23,7 +23,7 @@ cd ..
 cd balancer
 go build .
 echo "Will start load balancer on port ${BALANCER_PORT}"
-./balancer -number_of_instances=$NUMBER_OF_INSTANCES &>> logs_load_balancer.txt & pids+=($!)
+./balancer -port=${BALANCER_PORT} -number_of_instances=$NUMBER_OF_INSTANCES &>> logs_load_balancer.txt & pids+=($!)
 
 for pid in "${pids[@]}"; do
     wait $pid

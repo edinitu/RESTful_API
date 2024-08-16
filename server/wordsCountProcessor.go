@@ -19,12 +19,14 @@ func (h *Healthy) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 type WordsCount struct {
 	lock            sync.Mutex
 	wordFrequencies map[string]int
+	rpcClients      map[string]*rpc.Client
 	otherAddresses  []string
 	fileMgr         FileMgr
 }
 
 func (wco *WordsCount) Init() {
 	wco.wordFrequencies = make(map[string]int)
+	wco.rpcClients = make(map[string]*rpc.Client)
 	wco.fileMgr = new(FileMgrImpl)
 
 	for i := 0; i < numberOfInstances; i++ {
@@ -58,9 +60,16 @@ func (wco *WordsCount) UpdateCacheAndPersist(words []string, reply *int) error {
 	}
 
 	for _, address := range wco.otherAddresses {
-		client, err := rpc.DialHTTP("tcp", address)
-		if err != nil {
-			log.Println("Error dialing: ", err)
+		var client *rpc.Client
+		if _, ok := wco.rpcClients[address]; !ok {
+			client, err = rpc.DialHTTP("tcp", address)
+			if err != nil {
+				log.Println("Error dialing: ", err)
+				continue
+			}
+			wco.rpcClients[address] = client
+		} else {
+			client = wco.rpcClients[address]
 		}
 
 		err = client.Call(
@@ -70,6 +79,7 @@ func (wco *WordsCount) UpdateCacheAndPersist(words []string, reply *int) error {
 			log.Println("Error while synchronizing other instances, ", err.Error())
 		}
 	}
+
 	return nil
 }
 
@@ -77,7 +87,7 @@ func (wco *WordsCount) GetResponseFromCache(words WordsGetBody) map[string]int {
 	response := make(map[string]int)
 
 	for _, word := range words.Words {
-		if freq, ok := wco.wordFrequencies[word]; ok {
+		if freq, ok := wco.wordFrequencies[toLowerAndStripSpecialChars(word)]; ok {
 			response[word] = freq
 		} else {
 			response[word] = 0
