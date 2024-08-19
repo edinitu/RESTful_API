@@ -15,15 +15,19 @@ var (
 )
 
 const ip string = "127.0.0.1"
+const MAX_INSTANCES = 5
 
 func main() {
-	flag.IntVar(&numberOfInstances, "no_of_instances", 5, "number of API instances")
+	flag.IntVar(&numberOfInstances, "no_of_instances", 0, "number of API instances")
 	flag.IntVar(&port, "port", -1, "API instance port")
 	flag.IntVar(&balancerPort, "balancer_port", 7000, "Load Balancer port")
 	flag.Parse()
 
 	if port == -1 {
 		log.Fatal("Please input port number for the API instance")
+	}
+	if numberOfInstances > MAX_INSTANCES {
+		log.Fatal("Too many instances, max is 5")
 	}
 
 	addr := ip + ":" + strconv.Itoa(port)

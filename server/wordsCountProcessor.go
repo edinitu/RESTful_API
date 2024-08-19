@@ -12,15 +12,16 @@ import (
 
 type Healthy struct{}
 
+// basic check to confirm API is running
 func (h *Healthy) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	rw.WriteHeader(http.StatusOK)
 }
 
 type WordsCount struct {
 	lock            sync.Mutex
-	wordFrequencies map[string]int
-	rpcClients      map[string]*rpc.Client
-	otherAddresses  []string
+	wordFrequencies map[string]int         // in memory cache for our words count
+	rpcClients      map[string]*rpc.Client // mapping between address - rpc client
+	otherAddresses  []string               // other instances address in case of scaling up
 	fileMgr         FileMgr
 }
 
@@ -29,14 +30,21 @@ func (wco *WordsCount) Init() {
 	wco.rpcClients = make(map[string]*rpc.Client)
 	wco.fileMgr = new(FileMgrImpl)
 
+	// if the system is scaled up and we have other instances, for simplicity the
+	// choice is to have the load balancer at a port N, then the API instances at
+	// ports N+1, N+2,... etc. Port is a mandatory argument when starting an instance
+	// so we know that for example port 7002 is at a distance of 2 from the load balancer
+	// and we need to firstly add 7001 as another instance to synchronize with.
 	for i := 0; i < numberOfInstances; i++ {
-		if i+1 == port%10 {
+		if i+1 == port%5 {
 			continue
 		}
 		wco.otherAddresses = append(wco.otherAddresses, ip+":"+strconv.Itoa(balancerPort+i+1))
 	}
 }
 
+// UpdateCacheForWords method is called just by RPC calls in order to synchronize multiple
+// api instances.
 func (wco *WordsCount) UpdateCacheForWords(update Update, reply *int) error {
 	log.Println("Update received from other API instance")
 	var wordsToPersist []string
@@ -47,6 +55,9 @@ func (wco *WordsCount) UpdateCacheForWords(update Update, reply *int) error {
 	return wco.fileMgr.AppendDataToFile(wco, wordsToPersist)
 }
 
+// UpdateCacheAndPersist updates the in memory store of the words frequencies, then calls
+// the function for file persistence. Also, makes an RPC call to the other instances, if any,
+// to synchronize this update.
 func (wco *WordsCount) UpdateCacheAndPersist(words []string, reply *int) error {
 	update := make(map[string]int)
 	for _, word := range words {

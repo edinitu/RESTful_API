@@ -16,11 +16,12 @@ type Balancer interface {
 }
 
 type BalancerImpl struct {
-	APIInstances []API
-	lock         sync.Mutex
-	current      int
+	APIInstances []API      // list with all API instances in our system
+	lock         sync.Mutex // locks the rotation of instances and the current variable
+	current      int        // holds the index to the current API instance we want to direct the request to
 }
 
+// Reverse proxy implementation that directs the request to another server
 func (b *BalancerImpl) ServeHTTP(res http.ResponseWriter, req *http.Request) {
 	api := b.GetNextValidPeer()
 	if api == nil {
